@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mis Gastos</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #1a1d24;
+    --text: #f2f2f2;
+    --muted: #9a9fa8;
+    --accent: #5b8def;
+    --accent2: #f2a154;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px 16px 60px;
+  }
+  .wrap { max-width: 560px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+
+  .login-card, .card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 6px; }
+  input {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid #2a2e37;
+    background: #12151a;
+    color: var(--text);
+    font-size: 16px;
+  }
+  button {
+    margin-top: 12px;
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: white;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:active { opacity: 0.85; }
+
+  #dashboard { display: none; }
+
+  .total-label { color: var(--muted); font-size: 13px; }
+  .total-amount { font-size: 32px; font-weight: 700; margin-top: 4px; }
+
+  .row { display: flex; gap: 12px; }
+  .row .card { flex: 1; }
+
+  .stat-label { color: var(--muted); font-size: 12px; }
+  .stat-value { font-size: 18px; font-weight: 600; margin-top: 2px; }
+
+  .item {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid #23262e;
+    font-size: 14px;
+  }
+  .item:last-child { border-bottom: none; }
+  .item-desc { color: var(--text); }
+  .item-meta { color: var(--muted); font-size: 12px; }
+  .item-amount { font-weight: 600; }
+
+  .empty { color: var(--muted); text-align: center; padding: 30px 0; font-size: 14px; }
+  .error { color: #ff6b6b; font-size: 13px; margin-top: 8px; }
+  .back { color: var(--muted); font-size: 13px; text-align: center; margin-top: 8px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>💰 Mis Gastos</h1>
+  <div class="sub">Análisis de tu presupuesto registrado por WhatsApp</div>
+
+  <div class="login-card" id="loginCard">
+    <label for="telefono">Tu número de WhatsApp (con código de país, sin espacios)</label>
+    <input id="telefono" type="tel" placeholder="Ej. 50212345678" />
+    <button onclick="cargarDatos()">Ver mis gastos</button>
+    <div class="error" id="errorMsg"></div>
+  </div>
+
+  <div id="dashboard">
+    <div class="card">
+      <div class="total-label">Total este mes</div>
+      <div class="total-amount" id="totalMes">Q0.00</div>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <div class="stat-label">Categoría top</div>
+        <div class="stat-value" id="catTop">—</div>
+      </div>
+      <div class="card">
+        <div class="stat-label"># de gastos</div>
+        <div class="stat-value" id="numGastos">0</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <canvas id="chartCategorias" height="200"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="total-label" style="margin-bottom: 8px;">Últimos gastos</div>
+      <div id="listaGastos"></div>
+    </div>
+
+    <div class="back" onclick="volver()">← Usar otro número</div>
+  </div>
+</div>
+
+<script>
+let chart;
+
+async function cargarDatos() {
+  const telefono = document.getElementById('telefono').value.trim();
+  const errorMsg = document.getElementById('errorMsg');
+  errorMsg.textContent = '';
+
+  if (!telefono) {
+    errorMsg.textContent = 'Ingresa tu número de teléfono.';
+    return;
+  }
+
+  try {
+    const resp = await fetch(`/api/gastos?telefono=${encodeURIComponent(telefono)}`);
+    const data = await resp.json();
+
+    if (data.error) {
+      errorMsg.textContent = data.error;
+      return;
+    }
+
+    mostrarDashboard(data.gastos || []);
+  } catch (e) {
+    errorMsg.textContent = 'No se pudo conectar con el servidor. Intenta de nuevo.';
+  }
+}
+
+function mostrarDashboard(gastos) {
+  document.getElementById('loginCard').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+
+  const ahora = new Date();
+  const esteMes = gastos.filter(g => {
+    const f = new Date(g.fecha);
+    return f.getMonth() === ahora.getMonth() && f.getFullYear() === ahora.getFullYear();
+  });
+
+  const totalMes = esteMes.reduce((sum, g) => sum + g.monto, 0);
+  document.getElementById('totalMes').textContent = `Q${totalMes.toFixed(2)}`;
+  document.getElementById('numGastos').textContent = esteMes.length;
+
+  const porCategoria = {};
+  esteMes.forEach(g => {
+    porCategoria[g.categoria] = (porCategoria[g.categoria] || 0) + g.monto;
+  });
+
+  const categorias = Object.keys(porCategoria);
+  const montos = Object.values(porCategoria);
+
+  const topIdx = montos.indexOf(Math.max(...montos, 0));
+  document.getElementById('catTop').textContent = categorias[topIdx] || '—';
+
+  if (chart) chart.destroy();
+  const ctx = document.getElementById('chartCategorias').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: categorias,
+      datasets: [{
+        data: montos,
+        backgroundColor: '#5b8def',
+        borderRadius: 6,
+      }],
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#9a9fa8' }, grid: { display: false } },
+        y: { ticks: { color: '#9a9fa8' }, grid: { color: '#23262e' } },
+      },
+    },
+  });
+
+  const lista = document.getElementById('listaGastos');
+  lista.innerHTML = '';
+  if (gastos.length === 0) {
+    lista.innerHTML = '<div class="empty">Todavía no tienes gastos registrados.<br>Manda una foto, audio o mensaje por WhatsApp para empezar.</div>';
+    return;
+  }
+
+  gastos.slice(0, 15).forEach(g => {
+    const div = document.createElement('div');
+    div.className = 'item';
+    div.innerHTML = `
+      <div>
+        <div class="item-desc">${g.descripcion || g.categoria}</div>
+        <div class="item-meta">${g.categoria} · ${g.fecha}</div>
+      </div>
+      <div class="item-amount">Q${g.monto.toFixed(2)}</div>
+    `;
+    lista.appendChild(div);
+  });
+}
+
+function volver() {
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('loginCard').style.display = 'block';
+}
+</script>
+</body>
+</html>
